@@ -6,6 +6,10 @@ This tool helps researchers understand **why** a machine learning model predicts
 
 When a model predicts that "Drug X treats Disease Y", this visualization shows you **which training data influenced that prediction** and **how strongly**. Think of it as "explainable AI" for biomedical predictions.
 
+![Biomedical Knowledge Graph Visualization](docs/screenshot.png)
+
+*Example visualization showing how training edges influence the prediction "Alemtuzumab treats relapsing-remitting multiple sclerosis". Red nodes are prediction entities, teal nodes are training entities, with edge thickness indicating influence strength.*
+
 ### The Problem We're Solving
 
 - 🤖 **Machine learning models** make predictions about drug-disease relationships
