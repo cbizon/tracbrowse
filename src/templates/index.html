@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Biomedical Knowledge Graph Edge Influences</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+        }
+        
+        .controls {
+            margin-bottom: 20px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 5px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        label {
+            font-weight: bold;
+            color: #555;
+        }
+        
+        input, button {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        
+        button {
+            background: #007bff;
+            color: white;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        
+        button:hover {
+            background: #0056b3;
+        }
+        
+        #graph {
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background: white;
+        }
+        
+        .stats {
+            margin-top: 15px;
+            padding: 10px;
+            background: #e9ecef;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        
+        .legend {
+            margin-top: 15px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 5px;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 8px;
+        }
+        
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+        }
+        
+        .node.test-entity { fill: #ff6b6b; stroke: #e55555; stroke-width: 3; }
+        .node.train-entity { fill: #4ecdc4; }
+        .node.shared-entity { fill: #9b59b6; stroke: #8e44ad; stroke-width: 3; }
+        .train-edge { stroke: #4ecdc4; stroke-width: 2; }
+        
+        .node {
+            cursor: pointer;
+            stroke: #fff;
+            stroke-width: 2px;
+        }
+        
+        /* Override default stroke for specific node types */
+        .node.test-entity {
+            stroke: #e55555 !important;
+            stroke-width: 3px !important;
+        }
+        
+        .link {
+            fill: none;
+        }
+        
+        .tooltip {
+            position: absolute;
+            text-align: center;
+            padding: 8px;
+            font-size: 12px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            border-radius: 4px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Biomedical Knowledge Graph Edge Influences</h1>
+        
+        <div class="controls">
+            <div class="control-group">
+                <label for="maxEdges">Max Edges:</label>
+                <input type="number" id="maxEdges" value="1" min="1" max="10000">
+            </div>
+            <div class="control-group">
+                <label for="dehairToggle">
+                    <input type="checkbox" id="dehairToggle"> Remove degree-1 nodes
+                </label>
+            </div>
+            <button onclick="loadGraph()">Load Graph</button>
+            <button onclick="resetZoom()">Reset View</button>
+        </div>
+        
+        <svg id="graph" width="1200" height="700"></svg>
+        
+        <div class="stats" id="stats">
+            Loading statistics...
+        </div>
+        
+        <div class="prediction-info" id="predictionInfo" style="margin-top: 15px; padding: 15px; background: #fff3cd; border-radius: 5px; border: 1px solid #ffeaa7;">
+            <h3>Prediction Being Explained</h3>
+            <div id="predictionDetails">Loading...</div>
+        </div>
+        
+        <div class="legend">
+            <h3>Legend</h3>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #ff6b6b; border: 3px solid #e55555;"></div>
+                <span>Test Prediction Entities (TestHead/TestTail that appear in training)</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #4ecdc4;"></div>
+                <span>Training-Only Entities</span>
+            </div>
+            <div class="legend-item">
+                <svg width="30" height="4"><line x1="0" y1="2" x2="30" y2="2" class="train-edge"></line></svg>
+                <span>Training Edges (thickness = influence score)</span>
+            </div>
+        </div>
+    </div>
+    
+    <div class="tooltip" id="tooltip"></div>
+
+    <script>
+        const svg = d3.select("#graph");
+        const width = +svg.attr("width");
+        const height = +svg.attr("height");
+        
+        const g = svg.append("g");
+        
+        // Add zoom behavior
+        const zoom = d3.zoom()
+            .scaleExtent([0.1, 4])
+            .on("zoom", (event) => {
+                g.attr("transform", event.transform);
+            });
+        
+        svg.call(zoom);
+        
+        // Tooltip
+        const tooltip = d3.select("#tooltip");
+        
+        let simulation;
+        
+        function loadGraph() {
+            const maxEdges = document.getElementById('maxEdges').value;
+            const dehair = document.getElementById('dehairToggle').checked;
+            
+            // Clear existing graph
+            g.selectAll("*").remove();
+            
+            // Load data
+            fetch(`/api/data?max_edges=${maxEdges}&dehair=${dehair}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        alert(data.error);
+                        return;
+                    }
+                    
+                    renderGraph(data);
+                    showStats(data.stats);
+                    showPredictionInfo(data.prediction_info);
+                })
+                .catch(error => {
+                    console.error('Error loading data:', error);
+                    alert('Error loading data. Please check the console.');
+                });
+        }
+        
+        function renderGraph(data) {
+            // Create simulation
+            simulation = d3.forceSimulation(data.nodes)
+                .force("link", d3.forceLink(data.links).id(d => d.id).distance(100))
+                .force("charge", d3.forceManyBody().strength(-300))
+                .force("center", d3.forceCenter(width / 2, height / 2))
+                .force("collision", d3.forceCollide().radius(30));
+            
+            // Add links
+            const link = g.append("g")
+                .selectAll("line")
+                .data(data.links)
+                .enter().append("line")
+                .attr("class", d => `link ${d.type}`)
+                .style("stroke-width", d => d.width)
+                .each(function(d, i) {
+                    console.log(`Link ${i}: ${d.source} -> ${d.target}, width: ${d.width}, type: ${d.type}`);
+                })
+                .on("mouseover", (event, d) => {
+                    tooltip.transition().duration(200).style("opacity", .9);
+                    tooltip.html(`
+                        <strong>Type:</strong> ${d.type}<br>
+                        <strong>Relation:</strong> ${d.relation || 'influence'}<br>
+                        <strong>Score:</strong> ${d.score ? d.score.toFixed(4) : 'N/A'}
+                    `)
+                    .style("left", (event.pageX + 10) + "px")
+                    .style("top", (event.pageY - 28) + "px");
+                })
+                .on("mouseout", () => {
+                    tooltip.transition().duration(500).style("opacity", 0);
+                });
+            
+            // Add nodes
+            const node = g.append("g")
+                .selectAll("circle")
+                .data(data.nodes)
+                .enter().append("circle")
+                .attr("class", d => `node ${d.type}`)
+                .attr("r", 12)
+                .attr("fill", d => {
+                    if (d.type === "test_entity") return "#ff6b6b";
+                    if (d.type === "train_entity") return "#4ecdc4";
+                    if (d.type === "shared_entity") return "#9b59b6";
+                    return "#cccccc";  // fallback
+                })
+                .attr("stroke", d => {
+                    if (d.type === "test_entity") return "#e55555";
+                    if (d.type === "shared_entity") return "#8e44ad";
+                    return "#fff";  // default
+                })
+                .attr("stroke-width", d => {
+                    if (d.type === "test_entity" || d.type === "shared_entity") return 3;
+                    return 2;  // default
+                })
+                .each(function(d, i) {
+                    console.log(`Node ${i}: ${d.id} (${d.label}), type: ${d.type}`);
+                })
+                .on("mouseover", (event, d) => {
+                    tooltip.transition().duration(200).style("opacity", .9);
+                    tooltip.html(`
+                        <strong>Label:</strong> ${d.label}<br>
+                        <strong>Type:</strong> ${d.type}<br>
+                        <strong>CURIE:</strong> ${d.curie}
+                    `)
+                    .style("left", (event.pageX + 10) + "px")
+                    .style("top", (event.pageY - 28) + "px");
+                })
+                .on("mouseout", () => {
+                    tooltip.transition().duration(500).style("opacity", 0);
+                })
+                .call(d3.drag()
+                    .on("start", dragstarted)
+                    .on("drag", dragged)
+                    .on("end", dragended));
+            
+            // Add labels with background for readability
+            const labelGroup = g.append("g");
+            
+            // Add white background for text
+            const labelBackground = labelGroup.append("g")
+                .selectAll("text")
+                .data(data.nodes)
+                .enter().append("text")
+                .text(d => d.label.length > 15 ? d.label.substring(0, 15) + '...' : d.label)
+                .style("font-size", "10px")
+                .style("text-anchor", "middle")
+                .style("pointer-events", "none")
+                .style("stroke", "white")
+                .style("stroke-width", "3")
+                .style("fill", "white");
+                
+            // Add actual text
+            const label = labelGroup.append("g")
+                .selectAll("text")
+                .data(data.nodes)
+                .enter().append("text")
+                .text(d => d.label.length > 15 ? d.label.substring(0, 15) + '...' : d.label)
+                .style("font-size", "10px")
+                .style("text-anchor", "middle")
+                .style("pointer-events", "none")
+                .style("fill", "black");
+            
+            // Update positions on tick
+            simulation.on("tick", () => {
+                link
+                    .attr("x1", d => d.source.x)
+                    .attr("y1", d => d.source.y)
+                    .attr("x2", d => d.target.x)
+                    .attr("y2", d => d.target.y)
+                    .attr("stroke", "#4ecdc4")  // Force stroke color
+                    .attr("stroke-width", d => Math.max(2, d.width));  // Ensure minimum width
+                
+                node
+                    .attr("cx", d => d.x)
+                    .attr("cy", d => d.y);
+                
+                label
+                    .attr("x", d => d.x)
+                    .attr("y", d => d.y + 4);
+                    
+                labelBackground
+                    .attr("x", d => d.x)
+                    .attr("y", d => d.y + 4);
+            });
+        }
+        
+        function showStats(stats) {
+            let statsHtml = `<strong>Graph Statistics:</strong> `;
+            
+            if (stats.dehaired) {
+                statsHtml += `
+                    Nodes: ${stats.filtered_nodes} (removed ${stats.removed_nodes} degree-1 nodes) | 
+                    Edges: ${stats.filtered_links} (removed ${stats.removed_links} connected to degree-1 nodes)
+                `;
+            } else {
+                statsHtml += `
+                    Nodes: ${stats.filtered_nodes} | 
+                    Edges: ${stats.filtered_links}
+                `;
+            }
+            
+            document.getElementById('stats').innerHTML = statsHtml;
+        }
+        
+        function showPredictionInfo(predictionInfo) {
+            if (predictionInfo && predictionInfo.test_edge) {
+                const edge = predictionInfo.test_edge;
+                document.getElementById('predictionDetails').innerHTML = `
+                    <strong>Predicted Edge:</strong> ${edge.head_label} <em>${edge.relation}</em> ${edge.tail_label}<br>
+                    <strong>CURIEs:</strong> ${edge.head} → ${edge.tail}<br>
+                    <strong>Influences shown:</strong> ${predictionInfo.total_influences} training edges
+                `;
+            }
+        }
+        
+        function resetZoom() {
+            svg.transition().duration(750).call(
+                zoom.transform,
+                d3.zoomIdentity
+            );
+        }
+        
+        function dragstarted(event, d) {
+            if (!event.active) simulation.alphaTarget(0.3).restart();
+            d.fx = d.x;
+            d.fy = d.y;
+        }
+        
+        function dragged(event, d) {
+            d.fx = event.x;
+            d.fy = event.y;
+        }
+        
+        function dragended(event, d) {
+            if (!event.active) simulation.alphaTarget(0);
+            d.fx = null;
+            d.fy = null;
+        }
+        
+        // Load initial graph
+        loadGraph();
+    </script>
+</body>
+</html>
