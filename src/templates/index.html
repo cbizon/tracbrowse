@@ -49,11 +49,16 @@
             color: #555;
         }
         
-        input, button {
+        input, button, select {
             padding: 8px 12px;
             border: 1px solid #ddd;
             border-radius: 4px;
             font-size: 14px;
+        }
+        
+        select {
+            min-width: 200px;
+            background: white;
         }
         
         button {
@@ -142,6 +147,12 @@
         
         <div class="controls">
             <div class="control-group">
+                <label for="datasetSelect">Dataset:</label>
+                <select id="datasetSelect">
+                    <option value="">Loading datasets...</option>
+                </select>
+            </div>
+            <div class="control-group">
                 <label for="maxEdges">Max Edges:</label>
                 <input type="number" id="maxEdges" value="1" min="1" max="10000">
             </div>
@@ -205,15 +216,52 @@
         
         let simulation;
         
+        function loadDatasets() {
+            fetch('/api/datasets')
+                .then(response => response.json())
+                .then(datasets => {
+                    const select = document.getElementById('datasetSelect');
+                    select.innerHTML = '';
+                    
+                    if (datasets.length === 0) {
+                        select.innerHTML = '<option value="">No datasets found</option>';
+                        return;
+                    }
+                    
+                    datasets.forEach(dataset => {
+                        const option = document.createElement('option');
+                        option.value = dataset.filename;
+                        option.textContent = dataset.display_name;
+                        select.appendChild(option);
+                    });
+                    
+                    // Auto-load first dataset
+                    if (datasets.length > 0) {
+                        select.selectedIndex = 0;
+                        loadGraph();
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading datasets:', error);
+                    document.getElementById('datasetSelect').innerHTML = '<option value="">Error loading datasets</option>';
+                });
+        }
+
         function loadGraph() {
             const maxEdges = document.getElementById('maxEdges').value;
             const dehair = document.getElementById('dehairToggle').checked;
+            const dataset = document.getElementById('datasetSelect').value;
+            
+            if (!dataset) {
+                alert('Please select a dataset first.');
+                return;
+            }
             
             // Clear existing graph
             g.selectAll("*").remove();
             
             // Load data
-            fetch(`/api/data?max_edges=${maxEdges}&dehair=${dehair}`)
+            fetch(`/api/data?max_edges=${maxEdges}&dehair=${dehair}&dataset=${dataset}`)
                 .then(response => response.json())
                 .then(data => {
                     if (data.error) {
@@ -224,6 +272,7 @@
                     renderGraph(data);
                     showStats(data.stats);
                     showPredictionInfo(data.prediction_info);
+                    updateDatasetInfo(data.dataset_info);
                 })
                 .catch(error => {
                     console.error('Error loading data:', error);
@@ -386,6 +435,20 @@
             }
         }
         
+        function updateDatasetInfo(datasetInfo) {
+            if (datasetInfo) {
+                // Update the title to show which dataset is loaded
+                const currentDataset = document.getElementById('currentDataset');
+                if (!currentDataset) {
+                    // Add dataset info to stats section
+                    const statsElement = document.getElementById('stats');
+                    statsElement.innerHTML = `<span id="currentDataset"><strong>Dataset:</strong> ${datasetInfo.display_name}</span><br>` + statsElement.innerHTML;
+                } else {
+                    currentDataset.innerHTML = `<strong>Dataset:</strong> ${datasetInfo.display_name}`;
+                }
+            }
+        }
+        
         function resetZoom() {
             svg.transition().duration(750).call(
                 zoom.transform,
@@ -410,8 +473,8 @@
             d.fy = null;
         }
         
-        // Load initial graph
-        loadGraph();
+        // Load datasets first, then initial graph
+        loadDatasets();
     </script>
 </body>
 </html>

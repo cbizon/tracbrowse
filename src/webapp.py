@@ -200,11 +200,34 @@ def index():
     """Main page with graph visualization."""
     return render_template('index.html')
 
+@app.route('/api/datasets')
+def get_datasets():
+    """API endpoint to get list of available datasets."""
+    filtered_dir = '../filtered_data'
+    datasets = []
+    
+    if os.path.exists(filtered_dir):
+        for file in os.listdir(filtered_dir):
+            if file.endswith('.csv'):
+                # Create a clean display name from filename
+                display_name = file.replace('.csv', '').replace('_', ' ').title()
+                datasets.append({
+                    'filename': file,
+                    'display_name': display_name,
+                    'path': os.path.join(filtered_dir, file)
+                })
+    
+    # Sort by display name for consistent ordering
+    datasets.sort(key=lambda x: x['display_name'])
+    
+    return jsonify(datasets)
+
 @app.route('/api/data')
 def get_data():
     """API endpoint to get graph data."""
     max_edges = request.args.get('max_edges', type=int)
     dehair = request.args.get('dehair', 'false').lower() == 'true'
+    dataset = request.args.get('dataset')  # New parameter for dataset selection
     
     # Find available data files
     filtered_dir = '../filtered_data'
@@ -218,11 +241,31 @@ def get_data():
     if not available_files:
         return jsonify({'error': 'No data files found'})
     
-    # Load data from first available file
-    data_file = available_files[0]
+    # Select data file based on dataset parameter
+    data_file = None
+    if dataset:
+        # Look for the specified dataset
+        for file_path in available_files:
+            if os.path.basename(file_path) == dataset:
+                data_file = file_path
+                break
+        
+        if not data_file:
+            return jsonify({'error': f'Dataset "{dataset}" not found'})
+    else:
+        # Use first available file as default
+        data_file = available_files[0]
+    
     graph_data.load_data(data_file, max_edges)
     
-    return jsonify(graph_data.get_graph_data(dehair=dehair))
+    result = graph_data.get_graph_data(dehair=dehair)
+    # Add dataset info to response
+    result['dataset_info'] = {
+        'filename': os.path.basename(data_file),
+        'display_name': os.path.basename(data_file).replace('.csv', '').replace('_', ' ').title()
+    }
+    
+    return jsonify(result)
 
 @app.route('/api/stats')
 def get_stats():
