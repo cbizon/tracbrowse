@@ -301,7 +301,6 @@
                 .on("mouseover", (event, d) => {
                     tooltip.transition().duration(200).style("opacity", .9);
                     tooltip.html(`
-                        <strong>Type:</strong> ${d.type}<br>
                         <strong>Relation:</strong> ${d.relation || 'influence'}<br>
                         <strong>Score:</strong> ${d.score ? d.score.toFixed(4) : 'N/A'}
                     `)
@@ -341,7 +340,6 @@
                     tooltip.transition().duration(200).style("opacity", .9);
                     tooltip.html(`
                         <strong>Label:</strong> ${d.label}<br>
-                        <strong>Type:</strong> ${d.type}<br>
                         <strong>CURIE:</strong> ${d.curie}
                     `)
                     .style("left", (event.pageX + 10) + "px")
